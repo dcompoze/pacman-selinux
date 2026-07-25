@@ -189,13 +189,15 @@ sync_package_version()
 validate_superproject()
 {
   typeset dirty_state
+  typeset origin_url
+  typeset current_commit
+  typeset remote_commit
   typeset package
   typeset repository
   typeset recorded_commit
   typeset checked_out_commit
   typeset checked_out_branch
   typeset intended_branch
-  typeset tracking_remote
 
   if ! git -C "$SCRIPT_DIR" rev-parse --show-toplevel >/dev/null 2>&1
   then
@@ -213,11 +215,35 @@ validate_superproject()
     fail "Superproject or submodule state is not clean"
   fi
 
+  origin_url=$(git -C "$SCRIPT_DIR" remote get-url origin)
+
+  if [[ ${origin_url%.git} != $EXPECTED_SUPERPROJECT_ORIGIN ]]
+  then
+    fail "Superproject origin must use $EXPECTED_SUPERPROJECT_ORIGIN"
+  fi
+
+  if ! git -C "$SCRIPT_DIR" fetch --prune origin
+  then
+    fail "Could not fetch superproject origin"
+  fi
+
+  if ! git -C "$SCRIPT_DIR" show-ref --verify --quiet refs/remotes/origin/main
+  then
+    fail "Superproject origin/main is missing"
+  fi
+
+  current_commit=$(git -C "$SCRIPT_DIR" rev-parse HEAD)
+  remote_commit=$(git -C "$SCRIPT_DIR" rev-parse refs/remotes/origin/main)
+
+  if [[ $current_commit != $remote_commit ]]
+  then
+    fail "Superproject HEAD must exactly match origin/main"
+  fi
+
   for package in "${ALL_PACKAGES[@]}"
   do
     repository="$SCRIPT_DIR/$package"
     intended_branch=${SUBMODULE_BRANCHES[$package]}
-    tracking_remote=${TRACKING_REMOTES[$package]}
 
     if ! git -C "$repository" rev-parse --is-inside-work-tree \
       >/dev/null 2>&1
@@ -240,23 +266,6 @@ validate_superproject()
     if [[ $checked_out_branch != $intended_branch ]]
     then
       fail "$package must be checked out on $intended_branch"
-    fi
-
-    if ! git -C "$repository" fetch --prune "$tracking_remote"
-    then
-      fail "Could not fetch $tracking_remote for $package"
-    fi
-
-    if ! git -C "$repository" show-ref --verify --quiet \
-      "refs/remotes/$tracking_remote/$intended_branch"
-    then
-      fail "Missing $tracking_remote/$intended_branch for $package"
-    fi
-
-    if ! git -C "$repository" merge-base --is-ancestor HEAD \
-      "refs/remotes/$tracking_remote/$intended_branch"
-    then
-      fail "$package HEAD is not available on $tracking_remote/$intended_branch"
     fi
   done
 }
