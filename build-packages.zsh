@@ -1020,6 +1020,8 @@ then
   fail "The build environment must be x86_64"
 fi
 
+require_disposable_build_container || exit 1
+
 if grep -Eq '^[[:space:]]*\[selinux\][[:space:]]*$' /etc/pacman.conf
 then
   fail "Do not configure the selinux repository inside the build container"

@@ -29,6 +29,26 @@ typeset -gra PACKAGE_SUFFIXES=(
   pkg.tar.Z
 )
 
+require_disposable_build_container()
+{
+  typeset container_runtime=
+
+  if command -v systemd-detect-virt >/dev/null 2>&1
+  then
+    container_runtime=$(systemd-detect-virt --container 2>/dev/null) || true
+  fi
+
+  if [[ $container_runtime == docker || $container_runtime == podman ||
+    -e /.dockerenv || -e /run/.containerenv ]]
+  then
+    return 0
+  fi
+
+  print -u2 -r -- \
+    "ERROR Package setup and builds must run inside Docker or Podman"
+  return 1
+}
+
 confirm_action()
 {
   typeset prompt=$1

@@ -27,6 +27,8 @@ then
   exit 1
 fi
 
+require_disposable_build_container || exit 1
+
 if grep -Eq '^[[:space:]]*\[selinux\][[:space:]]*$' /etc/pacman.conf
 then
   print -u2 -r -- \
