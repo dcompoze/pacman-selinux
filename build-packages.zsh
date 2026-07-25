@@ -6,11 +6,122 @@ setopt NO_UNSET PIPE_FAIL
 typeset -gr SCRIPT_DIR=${0:A:h}
 source "$SCRIPT_DIR/release-common.zsh"
 
-parse_prompt_option "$@" || exit $?
+parse_build_options()
+{
+  typeset -gi PROMPT_ENABLED=1
+  typeset -g RESUME_FROM=
+
+  while (( $# > 0 ))
+  do
+    case $1 in
+      --no-prompt)
+        PROMPT_ENABLED=0
+        ;;
+      --from)
+        shift
+
+        if (( $# == 0 )) || [[ -z $1 ]]
+        then
+          print -u2 -r -- "ERROR --from requires a package base"
+          return 2
+        fi
+
+        if [[ -n $RESUME_FROM ]]
+        then
+          print -u2 -r -- "ERROR --from may only be specified once"
+          return 2
+        fi
+
+        RESUME_FROM=$1
+        ;;
+      --from=*)
+        if [[ -n $RESUME_FROM ]]
+        then
+          print -u2 -r -- "ERROR --from may only be specified once"
+          return 2
+        fi
+
+        RESUME_FROM=${1#--from=}
+
+        if [[ -z $RESUME_FROM ]]
+        then
+          print -u2 -r -- "ERROR --from requires a package base"
+          return 2
+        fi
+        ;;
+      *)
+        print -u2 -r -- "ERROR Unsupported option: $1"
+        print -u2 -r -- \
+          "Usage: ${0:t} [--no-prompt] [--from <package-base>]"
+        return 2
+        ;;
+    esac
+
+    shift
+  done
+}
+
+parse_build_options "$@" || exit $?
 
 typeset -gr BUILD_USER=pacman-build
 typeset -gr PACKAGER_NAME=dcompoze
 typeset BUILD_GROUP
+typeset -ga COMPLETED_PACKAGE_BASES
+typeset -ga PACKAGES_TO_BUILD
+
+select_build_range()
+{
+  typeset package
+  typeset -i found=0
+
+  COMPLETED_PACKAGE_BASES=()
+  PACKAGES_TO_BUILD=()
+
+  if [[ -z $RESUME_FROM ]]
+  then
+    PACKAGES_TO_BUILD=("${BUILD_ORDER[@]}")
+    return 0
+  fi
+
+  for package in "${BUILD_ORDER[@]}"
+  do
+    if [[ $package == $RESUME_FROM ]]
+    then
+      found=1
+    fi
+
+    if (( found ))
+    then
+      PACKAGES_TO_BUILD+=("$package")
+    else
+      COMPLETED_PACKAGE_BASES+=("$package")
+    fi
+  done
+
+  if (( ! found ))
+  then
+    print -u2 -r -- "ERROR Unknown build package base: $RESUME_FROM"
+    return 2
+  fi
+}
+
+select_build_range || exit $?
+
+package_skips_checks()
+{
+  typeset candidate=$1
+  typeset package
+
+  for package in "${NOCHECK_PACKAGE_BASES[@]}"
+  do
+    if [[ $candidate == $package ]]
+    then
+      return 0
+    fi
+  done
+
+  return 1
+}
 
 fail()
 {
@@ -158,7 +269,6 @@ validate_official_versions()
   typeset recipe_pkgrel
   typeset recipe_base_version
   typeset recipe_full_version
-  typeset installed_version
   typeset official_version
   typeset official_base_version
 
@@ -176,18 +286,12 @@ validate_official_versions()
 
     recipe_base_version="${recipe_epoch:+$recipe_epoch:}$recipe_pkgver"
     recipe_full_version="$recipe_base_version-$recipe_pkgrel"
-    installed_version=$(pacman -Q "$package" 2>/dev/null | awk '{print $2}')
     official_version=$(sync_package_version "$package")
     official_base_version=${official_version%-*}
 
-    if [[ -z $installed_version || -z $official_version ]]
+    if [[ -z $official_version ]]
     then
-      fail "Could not resolve bootstrap version for $package"
-    fi
-
-    if [[ $installed_version != $official_version ]]
-    then
-      fail "$package is not pristine: installed=$installed_version official=$official_version"
+      fail "Could not resolve official version for $package"
     fi
 
     if [[ $recipe_base_version != $official_base_version ]]
@@ -198,6 +302,38 @@ validate_official_versions()
     if (( $(vercmp "$recipe_full_version" "$official_version") <= 0 ))
     then
       fail "$package must exceed the official version: recipe=$recipe_full_version official=$official_version"
+    fi
+  done
+}
+
+validate_pristine_installed_packages()
+{
+  typeset package
+  typeset installed_version
+  typeset official_version
+
+  for package in "${OFFICIAL_PATCHED_PACKAGES[@]}"
+  do
+    installed_version=$(pacman -Q "$package" 2>/dev/null | awk '{print $2}')
+    official_version=$(sync_package_version "$package")
+
+    if [[ -z $installed_version || -z $official_version ]]
+    then
+      fail "Could not resolve bootstrap version for $package"
+    fi
+
+    if [[ $installed_version != $official_version ]]
+    then
+      fail \
+        "$package is not pristine: installed=$installed_version official=$official_version"
+    fi
+  done
+
+  for package in "${AUR_PACKAGES[@]}" selinux-refpolicy-arch
+  do
+    if pacman -Q "$package" >/dev/null 2>&1
+    then
+      fail "Custom package is already installed: $package"
     fi
   done
 }
@@ -280,6 +416,284 @@ copy_package_logs()
 }
 
 typeset -A BUILT_ARTIFACTS
+typeset -gr BUILD_STATE_FILE="$BUILD_ROOT/build-state.json"
+
+recipe_full_version()
+{
+  typeset package=$1
+  typeset srcinfo_file="$SCRIPT_DIR/$package/.SRCINFO"
+  typeset recipe_epoch
+  typeset recipe_pkgver
+  typeset recipe_pkgrel
+
+  recipe_epoch=$(srcinfo_value "$srcinfo_file" epoch)
+  recipe_pkgver=$(srcinfo_value "$srcinfo_file" pkgver)
+  recipe_pkgrel=$(srcinfo_value "$srcinfo_file" pkgrel)
+
+  if [[ -z $recipe_pkgver || -z $recipe_pkgrel ]]
+  then
+    return 1
+  fi
+
+  print -r -- \
+    "${recipe_epoch:+$recipe_epoch:}$recipe_pkgver-$recipe_pkgrel"
+}
+
+validate_resume_artifacts()
+{
+  typeset package
+  typeset output_name
+  typeset output_names
+  typeset package_file
+  typeset package_name
+  typeset package_arch
+  typeset package_version
+  typeset expected_version
+  typeset entry
+  typeset -a repository_entries
+  typeset -A expected_base_by_name
+  typeset -A package_file_set
+
+  BUILT_ARTIFACTS=()
+
+  for package in "${COMPLETED_PACKAGE_BASES[@]}"
+  do
+    output_names=${PUBLISHED_OUTPUTS[$package]}
+
+    for output_name in ${=output_names}
+    do
+      expected_base_by_name[$output_name]=$package
+    done
+  done
+
+  collect_package_files
+  repository_entries=("$REPOSITORY_DIR"/*(DN))
+
+  for package_file in "${PACKAGE_FILES[@]}"
+  do
+    package_file_set[$package_file]=1
+  done
+
+  for entry in "${repository_entries[@]}"
+  do
+    if [[ -z ${package_file_set[$entry]-} ]]
+    then
+      print -u2 -r -- \
+        "ERROR Resume repository contains an unexpected file: ${entry:t}"
+      return 1
+    fi
+  done
+
+  if (( ${#PACKAGE_FILES} != ${#expected_base_by_name} ))
+  then
+    print -u2 -r -- \
+      "ERROR Resume artifact count does not match completed package bases"
+    return 1
+  fi
+
+  for package_file in "${PACKAGE_FILES[@]}"
+  do
+    package_name=$(package_metadata_field "$package_file" pkgname)
+    package_arch=$(package_metadata_field "$package_file" arch)
+    package_version=$(package_metadata_field "$package_file" pkgver)
+
+    if [[ -z $package_name || -z $package_arch || -z $package_version ]]
+    then
+      print -u2 -r -- \
+        "ERROR Could not read resume artifact metadata: ${package_file:t}"
+      return 1
+    fi
+
+    if [[ -z ${expected_base_by_name[$package_name]-} ]]
+    then
+      print -u2 -r -- \
+        "ERROR Unexpected resume artifact: ${package_file:t}"
+      return 1
+    fi
+
+    if [[ $package_arch != x86_64 && $package_arch != any ]]
+    then
+      print -u2 -r -- \
+        "ERROR Unsupported package architecture for $package_name: $package_arch"
+      return 1
+    fi
+
+    if [[ -n ${BUILT_ARTIFACTS[$package_name]-} ]]
+    then
+      print -u2 -r -- "ERROR Duplicate resume artifact: $package_name"
+      return 1
+    fi
+
+    package=${expected_base_by_name[$package_name]}
+    expected_version=$(recipe_full_version "$package") || {
+      print -u2 -r -- \
+        "ERROR Could not resolve expected version for $package"
+      return 1
+    }
+
+    if [[ $package_version != $expected_version ]]
+    then
+      print -u2 -r -- \
+        "ERROR Resume artifact version differs for $package_name: artifact=$package_version expected=$expected_version"
+      return 1
+    fi
+
+    BUILT_ARTIFACTS[$package_name]=$package_file
+  done
+
+  for output_name in ${(k)expected_base_by_name}
+  do
+    if [[ -z ${BUILT_ARTIFACTS[$output_name]-} ]]
+    then
+      print -u2 -r -- "ERROR Missing resume artifact: $output_name"
+      return 1
+    fi
+  done
+}
+
+validate_resume_installed_packages()
+{
+  typeset package
+  typeset install_name
+  typeset install_names
+  typeset installed_version
+  typeset expected_version
+  typeset official_version
+  typeset -A installed_from_artifact
+
+  for package in "${COMPLETED_PACKAGE_BASES[@]}"
+  do
+    install_names=${INTERMEDIATE_INSTALLS[$package]}
+
+    for install_name in ${=install_names}
+    do
+      installed_from_artifact[$install_name]=1
+      installed_version=$(
+        pacman -Q "$install_name" 2>/dev/null | awk '{print $2}'
+      )
+      expected_version=$(
+        package_metadata_field "${BUILT_ARTIFACTS[$install_name]}" pkgver
+      )
+
+      if [[ -z $installed_version || $installed_version != $expected_version ]]
+      then
+        fail \
+          "Resume dependency differs for $install_name: installed=${installed_version:-missing} expected=$expected_version"
+      fi
+    done
+  done
+
+  for package in "${OFFICIAL_PATCHED_PACKAGES[@]}"
+  do
+    if [[ -n ${installed_from_artifact[$package]-} ]]
+    then
+      continue
+    fi
+
+    installed_version=$(pacman -Q "$package" 2>/dev/null | awk '{print $2}')
+    official_version=$(sync_package_version "$package")
+
+    if [[ -z $installed_version || $installed_version != $official_version ]]
+    then
+      fail \
+        "$package is not pristine for resume: installed=${installed_version:-missing} official=$official_version"
+    fi
+  done
+}
+
+validate_resume_build_state()
+{
+  typeset package
+  typeset expected_bases_json
+  typeset recorded_commit
+  typeset current_commit
+
+  if [[ ! -f $BUILD_STATE_FILE ]]
+  then
+    print -r -- \
+      "Adopting validated partial artifacts from the earlier build"
+    return 0
+  fi
+
+  expected_bases_json=$(
+    jq -cn --args '$ARGS.positional' "${COMPLETED_PACKAGE_BASES[@]}"
+  ) || return 1
+
+  if ! jq -e \
+    --argjson expected "$expected_bases_json" \
+    '
+      .schema_version == 1 and
+      .completed_package_bases == $expected and
+      (.submodules | type == "array")
+    ' "$BUILD_STATE_FILE" >/dev/null
+  then
+    print -u2 -r -- \
+      "ERROR Build state does not match --from $RESUME_FROM"
+    return 1
+  fi
+
+  for package in "${COMPLETED_PACKAGE_BASES[@]}"
+  do
+    recorded_commit=$(
+      jq -er --arg name "$package" \
+        '.submodules[] | select(.name == $name) | .commit' \
+        "$BUILD_STATE_FILE"
+    ) || {
+      print -u2 -r -- \
+        "ERROR Build state is missing the commit for $package"
+      return 1
+    }
+    current_commit=$(git -C "$SCRIPT_DIR/$package" rev-parse HEAD)
+
+    if [[ $recorded_commit != $current_commit ]]
+    then
+      print -u2 -r -- \
+        "ERROR Completed package source changed since build: $package"
+      return 1
+    fi
+  done
+}
+
+write_build_state()
+{
+  typeset package
+  typeset state_temp
+  typeset completed_bases_json
+  typeset submodule_records="$BUILD_ROOT/build-state-submodules.jsonl"
+  typeset submodules_json
+
+  : > "$submodule_records" || return 1
+
+  for package in "${COMPLETED_PACKAGE_BASES[@]}"
+  do
+    jq -cn \
+      --arg name "$package" \
+      --arg commit "$(git -C "$SCRIPT_DIR/$package" rev-parse HEAD)" \
+      '{name: $name, commit: $commit}' >> "$submodule_records" ||
+      return 1
+  done
+
+  completed_bases_json=$(
+    jq -cn --args '$ARGS.positional' "${COMPLETED_PACKAGE_BASES[@]}"
+  ) || return 1
+  submodules_json=$(jq -sc . "$submodule_records") || return 1
+  state_temp=$(mktemp "$BUILD_ROOT/.build-state.XXXXXX") || return 1
+
+  if ! jq -n \
+    --argjson completed_package_bases "$completed_bases_json" \
+    --argjson submodules "$submodules_json" \
+    '{
+      schema_version: 1,
+      completed_package_bases: $completed_package_bases,
+      submodules: $submodules
+    }' > "$state_temp"
+  then
+    rm -f -- "$state_temp"
+    return 1
+  fi
+
+  mv -f -- "$state_temp" "$BUILD_STATE_FILE"
+}
 
 retain_selected_outputs()
 {
@@ -386,6 +800,24 @@ build_one_package()
   typeset archive_file="$package_root/source.tar"
   typeset config_file="$package_root/makepkg.conf"
   typeset generated_srcinfo="$package_root/.SRCINFO.generated"
+  typeset -a makepkg_options
+
+  if [[ -e $package_root ]]
+  then
+    if [[ ${package_root:A} != ${BUILD_ROOT:A}/$package ]]
+    then
+      print -u2 -r -- \
+        "ERROR [$package] Unsafe package build directory: $package_root"
+      return 1
+    fi
+
+    if ! rm -rf -- "$package_root"
+    then
+      print -u2 -r -- \
+        "ERROR [$package] Could not reset package build directory"
+      return 1
+    fi
+  fi
 
   if ! install -d -m 0755 \
     "$source_directory" \
@@ -441,9 +873,22 @@ build_one_package()
     return 1
   fi
 
+  makepkg_options=(
+    --syncdeps
+    --noconfirm
+    --cleanbuild
+    --log
+  )
+
+  if package_skips_checks "$package"
+  then
+    print -r -- "Skipping check() for $package"
+    makepkg_options+=(--nocheck)
+  fi
+
   if ! sudo --set-home -u "$BUILD_USER" -- makepkg \
     --config "$config_file" --dir "$source_directory" \
-    --syncdeps --noconfirm --cleanbuild --log
+    "${makepkg_options[@]}"
   then
     copy_package_logs "$package" "$package_logs" || true
     print -u2 -r -- "ERROR [$package] makepkg failed"
@@ -579,7 +1024,7 @@ fi
 
 typeset command
 
-for command in awk bsdtar cmp date diff git gpg jq makepkg pacman \
+for command in awk bsdtar cmp date diff git gpg jq makepkg mktemp pacman \
   sha256sum sudo vercmp
 do
   command -v "$command" >/dev/null 2>&1 ||
@@ -600,14 +1045,31 @@ validate_generated_path "$BUILD_ROOT" || fail "Unsafe build root: $BUILD_ROOT"
 validate_generated_path "$ARTIFACTS_DIR" ||
   fail "Unsafe artifacts directory: $ARTIFACTS_DIR"
 
-directory_is_empty "$BUILD_ROOT" ||
-  fail "Build root is not empty, run cleanup-build-output.zsh first"
-directory_is_empty "$ARTIFACTS_DIR" ||
-  fail "Artifacts directory is not empty, run cleanup-build-output.zsh first"
-
 validate_superproject
 validate_official_versions
 validate_source_keys
+
+if [[ -z $RESUME_FROM ]]
+then
+  directory_is_empty "$BUILD_ROOT" ||
+    fail "Build root is not empty, run cleanup-build-output.zsh first"
+  directory_is_empty "$ARTIFACTS_DIR" ||
+    fail "Artifacts directory is not empty, run cleanup-build-output.zsh first"
+  validate_pristine_installed_packages
+else
+  [[ -d $BUILD_ROOT ]] ||
+    fail "Build root is missing, cannot resume from $RESUME_FROM"
+  [[ -d $REPOSITORY_DIR ]] ||
+    fail "Artifact repository is missing, cannot resume from $RESUME_FROM"
+  [[ ! -e "$REPOSITORY_DIR/build-manifest.json" ]] ||
+    fail "Build is already complete and cannot be resumed"
+
+  validate_resume_artifacts ||
+    fail "Partial artifacts are invalid for --from $RESUME_FROM"
+  validate_resume_build_state ||
+    fail "Partial build state is invalid for --from $RESUME_FROM"
+  validate_resume_installed_packages
+fi
 
 typeset workspace_uid
 typeset workspace_gid
@@ -632,7 +1094,9 @@ install -d -m 0755 -o "$BUILD_USER" -g "$BUILD_GROUP" "$BUILD_ROOT" ||
 install -d -m 0755 "$REPOSITORY_DIR" "$ARTIFACTS_DIR/logs" ||
   fail "Could not prepare artifact directories"
 
-for package in "${BUILD_ORDER[@]}"
+write_build_state || fail "Could not initialize build state"
+
+for package in "${PACKAGES_TO_BUILD[@]}"
 do
   print -r -- ""
   print -r -- "==> $package"
@@ -650,6 +1114,8 @@ do
   fi
 
   build_one_package "$package" || exit 1
+  COMPLETED_PACKAGE_BASES+=("$package")
+  write_build_state || fail "Could not update build state after $package"
 done
 
 create_build_manifest || fail "Could not create build manifest"
@@ -657,5 +1123,6 @@ restore_artifact_ownership || fail "Could not restore artifact ownership"
 
 print -r -- ""
 print -r -- "Built package bases: ${#BUILD_ORDER[@]}"
+print -r -- "Built in this invocation: ${#PACKAGES_TO_BUILD[@]}"
 print -r -- "Published package artifacts: ${#PUBLISHED_PACKAGE_NAMES[@]}"
 print -r -- "Build manifest: $REPOSITORY_DIR/build-manifest.json"

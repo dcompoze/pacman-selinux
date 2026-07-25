@@ -71,6 +71,10 @@ typeset -gra BUILD_ORDER=(
   selinux-alpm-hook
 )
 
+typeset -gra NOCHECK_PACKAGE_BASES=(
+  util-linux
+)
+
 typeset -gra PUBLISHED_PACKAGE_NAMES=(
   coreutils
   util-linux
