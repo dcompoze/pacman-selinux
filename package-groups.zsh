@@ -72,6 +72,7 @@ typeset -gra BUILD_ORDER=(
 )
 
 typeset -gra NOCHECK_PACKAGE_BASES=(
+  coreutils
   util-linux
 )
 
