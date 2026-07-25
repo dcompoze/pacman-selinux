@@ -44,6 +44,8 @@ then
   fail "Release version must use canonical MAJOR.MINOR format"
 fi
 
+typeset -gr release_tag="v$release_version"
+
 typeset package_name
 typeset package_file
 typeset signed_file
@@ -189,21 +191,21 @@ then
 fi
 
 if git -C "$SCRIPT_DIR" show-ref --verify --quiet \
-  "refs/tags/$release_version"
+  "refs/tags/$release_tag"
 then
-  fail "Local tag already exists: $release_version"
+  fail "Local tag already exists: $release_tag"
 fi
 
 typeset remote_tag
 
 remote_tag=$(
   git -C "$SCRIPT_DIR" ls-remote --tags origin \
-    "refs/tags/$release_version"
+    "refs/tags/$release_tag"
 ) || fail "Could not query remote tags"
 
 if [[ -n $remote_tag ]]
 then
-  fail "Remote tag already exists: $release_version"
+  fail "Remote tag already exists: $release_tag"
 fi
 
 if ! gh auth status --hostname github.com >/dev/null 2>&1
@@ -221,16 +223,16 @@ then
   fail "Could not access $GITHUB_REPOSITORY"
 fi
 
-if gh release view "$release_version" \
+if gh release view "$release_tag" \
   --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
 then
-  fail "GitHub release already exists: $release_version"
+  fail "GitHub release already exists: $release_tag"
 fi
 
 if (( PROMPT_ENABLED ))
 then
   confirm_action \
-    "Publish signed release $release_version to $GITHUB_REPOSITORY?" ||
+    "Publish signed release $release_tag to $GITHUB_REPOSITORY?" ||
     exit $?
 fi
 
@@ -239,46 +241,46 @@ typeset -i remote_tag_created=0
 
 rollback_release()
 {
-  print -u2 -r -- "Rolling back release $release_version"
+  print -u2 -r -- "Rolling back release $release_tag"
 
-  if gh release view "$release_version" \
+  if gh release view "$release_tag" \
     --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
   then
-    gh release delete "$release_version" \
+    gh release delete "$release_tag" \
       --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes ||
       print -u2 -r -- "ERROR Could not delete partial GitHub release"
   elif (( remote_tag_created ))
   then
     git -C "$SCRIPT_DIR" push origin \
-      ":refs/tags/$release_version" ||
+      ":refs/tags/$release_tag" ||
       print -u2 -r -- "ERROR Could not delete partial remote tag"
   fi
 
   if (( local_tag_created ))
   then
-    git -C "$SCRIPT_DIR" tag --delete "$release_version" >/dev/null ||
+    git -C "$SCRIPT_DIR" tag --delete "$release_tag" >/dev/null ||
       print -u2 -r -- "ERROR Could not delete local tag"
   fi
 }
 
 if ! git -C "$SCRIPT_DIR" -c gpg.format=openpgp tag --sign \
   --local-user "$SIGNING_KEY" \
-  --message "pacman-selinux $release_version" \
-  "$release_version" "$superproject_commit"
+  --message "pacman-selinux $release_tag" \
+  "$release_tag" "$superproject_commit"
 then
   fail "Could not create signed release tag"
 fi
 
 local_tag_created=1
 
-if ! git -C "$SCRIPT_DIR" tag --verify "$release_version"
+if ! git -C "$SCRIPT_DIR" tag --verify "$release_tag"
 then
   rollback_release
   fail "Signed release tag failed verification"
 fi
 
 if ! git -C "$SCRIPT_DIR" push origin \
-  "refs/tags/${release_version}:refs/tags/${release_version}"
+  "refs/tags/${release_tag}:refs/tags/${release_tag}"
 then
   rollback_release
   fail "Could not push signed release tag"
@@ -289,7 +291,7 @@ remote_tag_created=1
 typeset release_notes
 
 release_notes=$(
-  print -r -- "pacman-selinux $release_version"
+  print -r -- "pacman-selinux $release_tag"
   print -r -- ""
   print -r -- "Superproject commit: $superproject_commit"
   print -r -- "Architecture: x86_64"
@@ -299,11 +301,11 @@ release_notes=$(
   print -r -- "See build-manifest.json and SHA256SUMS for details."
 )
 
-if ! gh release create "$release_version" \
+if ! gh release create "$release_tag" \
   --repo "$GITHUB_REPOSITORY" \
   --verify-tag \
   --latest \
-  --title "$release_version" \
+  --title "$release_tag" \
   --notes "$release_notes" \
   "${release_assets[@]}"
 then
@@ -316,7 +318,7 @@ typeset expected_assets_json
 typeset latest_tag
 
 actual_assets_json=$(
-  gh release view "$release_version" \
+  gh release view "$release_tag" \
     --repo "$GITHUB_REPOSITORY" \
     --json assets,isDraft,isPrerelease,tagName \
     --jq '
@@ -352,12 +354,12 @@ latest_tag=$(
   fail "Could not verify the latest release"
 }
 
-if [[ $latest_tag != $release_version ]]
+if [[ $latest_tag != $release_tag ]]
 then
   rollback_release
   fail "Published release was not marked as latest"
 fi
 
-print -r -- "Published release $release_version"
+print -r -- "Published release $release_tag"
 print -r -- \
   "Repository URL: https://github.com/$GITHUB_REPOSITORY/releases/latest/download"
