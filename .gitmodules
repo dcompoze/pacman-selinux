@@ -1,0 +1,84 @@
+[submodule "coreutils"]
+	path = coreutils
+	url = https://github.com/dcompoze/coreutils
+	branch = selinux
+[submodule "dbus-broker"]
+	path = dbus-broker
+	url = https://github.com/dcompoze/dbus-broker
+	branch = selinux
+[submodule "dbus"]
+	path = dbus
+	url = https://github.com/dcompoze/dbus
+	branch = selinux
+[submodule "openssh"]
+	path = openssh
+	url = https://github.com/dcompoze/openssh
+	branch = selinux
+[submodule "pam"]
+	path = pam
+	url = https://github.com/dcompoze/pam
+	branch = selinux
+[submodule "pambase"]
+	path = pambase
+	url = https://github.com/dcompoze/pambase
+	branch = selinux
+[submodule "shadow"]
+	path = shadow
+	url = https://github.com/dcompoze/shadow
+	branch = selinux
+[submodule "sudo"]
+	path = sudo
+	url = https://github.com/dcompoze/sudo
+	branch = selinux
+[submodule "systemd"]
+	path = systemd
+	url = https://github.com/dcompoze/systemd
+	branch = selinux
+[submodule "util-linux"]
+	path = util-linux
+	url = https://github.com/dcompoze/util-linux
+	branch = selinux
+[submodule "selinux-refpolicy-arch"]
+	path = selinux-refpolicy-arch
+	url = https://github.com/dcompoze/selinux-refpolicy-arch
+	branch = custom
+[submodule "checkpolicy"]
+	path = checkpolicy
+	url = https://aur.archlinux.org/checkpolicy.git
+	branch = master
+[submodule "libselinux"]
+	path = libselinux
+	url = https://aur.archlinux.org/libselinux.git
+	branch = master
+[submodule "libsemanage"]
+	path = libsemanage
+	url = https://aur.archlinux.org/libsemanage.git
+	branch = master
+[submodule "libsepol"]
+	path = libsepol
+	url = https://aur.archlinux.org/libsepol.git
+	branch = master
+[submodule "policycoreutils"]
+	path = policycoreutils
+	url = https://aur.archlinux.org/policycoreutils.git
+	branch = master
+[submodule "secilc"]
+	path = secilc
+	url = https://aur.archlinux.org/secilc
+	branch = master
+[submodule "selinux-alpm-hook"]
+	path = selinux-alpm-hook
+	url = https://aur.archlinux.org/selinux-alpm-hook
+	branch = master
+[submodule "selinux-python"]
+	path = selinux-python
+	url = https://aur.archlinux.org/selinux-python.git
+	branch = master
+[submodule "semodule-utils"]
+	path = semodule-utils
+	url = https://aur.archlinux.org/semodule-utils
+	branch = master
+[submodule "setools"]
+	path = setools
+	url = https://aur.archlinux.org/setools.git
+	branch = master
