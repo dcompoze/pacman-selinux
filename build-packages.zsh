@@ -66,6 +66,7 @@ parse_build_options "$@" || exit $?
 typeset -gr BUILD_USER=pacman-build
 typeset -gr PACKAGER_NAME=dcompoze
 typeset BUILD_GROUP
+typeset BUILD_PATH
 typeset -ga COMPLETED_PACKAGE_BASES
 typeset -ga PACKAGES_TO_BUILD
 
@@ -858,7 +859,8 @@ build_one_package()
     return 1
   fi
 
-  if ! sudo --set-home -u "$BUILD_USER" -- makepkg \
+  if ! sudo --set-home -u "$BUILD_USER" -- \
+    env PATH="$BUILD_PATH" makepkg \
     --config "$config_file" --dir "$source_directory" \
     --printsrcinfo > "$generated_srcinfo"
   then
@@ -886,7 +888,8 @@ build_one_package()
     makepkg_options+=(--nocheck)
   fi
 
-  if ! sudo --set-home -u "$BUILD_USER" -- makepkg \
+  if ! sudo --set-home -u "$BUILD_USER" -- \
+    env PATH="$BUILD_PATH" makepkg \
     --config "$config_file" --dir "$source_directory" \
     "${makepkg_options[@]}"
   then
@@ -1024,8 +1027,8 @@ fi
 
 typeset command
 
-for command in awk bsdtar cmp date diff git gpg jq makepkg mktemp pacman \
-  sha256sum sudo vercmp
+for command in awk bash bsdtar cmp date diff env git gpg jq makepkg \
+  mktemp pacman sha256sum sudo vercmp
 do
   command -v "$command" >/dev/null 2>&1 ||
     fail "Required command is missing: $command"
@@ -1034,6 +1037,11 @@ done
 id "$BUILD_USER" >/dev/null 2>&1 ||
   fail "Build user is missing, run setup-build-environment.zsh first"
 BUILD_GROUP=$(id -gn "$BUILD_USER")
+BUILD_PATH=$(
+  sudo --set-home -u "$BUILD_USER" -- \
+    bash -lc 'printf "%s" "$PATH"'
+) || fail "Could not resolve the build-user PATH"
+[[ -n $BUILD_PATH ]] || fail "Build-user PATH is empty"
 
 if ! sudo --set-home -u "$BUILD_USER" -- sudo -n pacman --version >/dev/null
 then
