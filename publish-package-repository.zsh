@@ -116,6 +116,7 @@ do
 done
 
 typeset dirty_state
+typeset current_commit
 typeset superproject_commit
 typeset manifest_commit
 typeset origin_url
@@ -134,19 +135,24 @@ then
   fail "Superproject or submodule state is not clean"
 fi
 
-superproject_commit=$(git -C "$SCRIPT_DIR" rev-parse HEAD)
+current_commit=$(git -C "$SCRIPT_DIR" rev-parse HEAD)
 manifest_commit=$(
   jq -r '.superproject_commit' "$REPOSITORY_DIR/build-manifest.json"
 )
 
-if [[ $manifest_commit != $superproject_commit ]]
+if ! git -C "$SCRIPT_DIR" cat-file -e "${manifest_commit}^{commit}"
 then
-  fail "Build manifest does not match the current superproject commit"
+  fail "Build manifest superproject commit does not exist"
 fi
+
+superproject_commit=$manifest_commit
 
 for package in "${ALL_PACKAGES[@]}"
 do
-  recorded_commit=$(git -C "$SCRIPT_DIR" rev-parse ":$package")
+  recorded_commit=$(
+    git -C "$SCRIPT_DIR" rev-parse "$superproject_commit:$package"
+  ) || fail "Could not read $package from the build manifest commit"
+
   manifest_submodule_commit=$(
     jq -r --arg name "$package" \
       '.submodules[] | select(.name == $name) | .commit' \
@@ -176,7 +182,7 @@ then
   fail "origin/main is missing"
 fi
 
-if [[ $superproject_commit != \
+if [[ $current_commit != \
   $(git -C "$SCRIPT_DIR" rev-parse refs/remotes/origin/main) ]]
 then
   fail "Local HEAD must exactly match origin/main"
