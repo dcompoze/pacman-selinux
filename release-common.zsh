@@ -9,6 +9,8 @@ typeset -gr DEFAULT_BUILD_ROOT=/var/tmp/pacman-selinux-build
 typeset -gr DEFAULT_SIGNING_KEY=BC4B3FA1ECBF048D49EB91FB7C378F4243F0A153
 typeset -gr GITHUB_REPOSITORY=dcompoze/pacman-selinux
 typeset -gr EXPECTED_SUPERPROJECT_ORIGIN=https://github.com/dcompoze/pacman-selinux
+typeset -gr EXPECTED_PACKAGER='dcompoze <contact@dcsoftware.xyz>'
+typeset -gr EXPECTED_PACKAGE_GROUP=selinux
 
 typeset -gr ARTIFACTS_DIR=${PACMAN_ARTIFACTS_DIR:-$DEFAULT_ARTIFACTS_DIR}
 typeset -gr REPOSITORY_DIR=${PACMAN_REPOSITORY_DIR:-$ARTIFACTS_DIR/repository}
@@ -84,6 +86,23 @@ package_metadata_field()
     awk -F ' = ' -v field="$field" '$1 == field {print $2; exit}'
 }
 
+package_metadata_has_value()
+{
+  typeset package_file=$1
+  typeset field=$2
+  typeset expected_value=$3
+
+  bsdtar -xOf "$package_file" .PKGINFO |
+    awk -F ' = ' -v field="$field" -v expected="$expected_value" '
+      $1 == field && $2 == expected {
+        found=1
+      }
+      END {
+        exit !found
+      }
+    '
+}
+
 collect_package_files()
 {
   typeset suffix
@@ -117,6 +136,7 @@ validate_package_artifacts()
   typeset package_file
   typeset package_name
   typeset package_arch
+  typeset package_packager
   typeset expected
   typeset -gA ARTIFACT_BY_PACKAGE
   typeset -ga PACKAGE_FILES
@@ -134,8 +154,9 @@ validate_package_artifacts()
   do
     package_name=$(package_metadata_field "$package_file" pkgname)
     package_arch=$(package_metadata_field "$package_file" arch)
+    package_packager=$(package_metadata_field "$package_file" packager)
 
-    if [[ -z $package_name || -z $package_arch ]]
+    if [[ -z $package_name || -z $package_arch || -z $package_packager ]]
     then
       print -u2 -r -- "ERROR Could not read package metadata: $package_file"
       return 1
@@ -151,6 +172,21 @@ validate_package_artifacts()
     then
       print -u2 -r -- \
         "ERROR Unsupported package architecture for $package_name: $package_arch"
+      return 1
+    fi
+
+    if ! package_metadata_has_value \
+      "$package_file" group "$EXPECTED_PACKAGE_GROUP"
+    then
+      print -u2 -r -- \
+        "ERROR $package_name does not belong to $EXPECTED_PACKAGE_GROUP"
+      return 1
+    fi
+
+    if [[ $package_packager != $EXPECTED_PACKAGER ]]
+    then
+      print -u2 -r -- \
+        "ERROR Unexpected packager for $package_name: $package_packager"
       return 1
     fi
 
@@ -195,11 +231,12 @@ validate_build_manifest()
 
   if ! jq -e \
     --argjson expected_count "${#PUBLISHED_PACKAGE_NAMES[@]}" \
+    --arg expected_packager "$EXPECTED_PACKAGER" \
     '
       .schema_version == 1 and
       .complete == true and
       .architecture == "x86_64" and
-      .packager == "dcompoze" and
+      .packager == $expected_packager and
       (.superproject_commit | type == "string" and length == 40) and
       (.packages | type == "array" and length == $expected_count)
     ' "$manifest_file" >/dev/null

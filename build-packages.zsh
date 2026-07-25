@@ -64,7 +64,7 @@ parse_build_options()
 parse_build_options "$@" || exit $?
 
 typeset -gr BUILD_USER=pacman-build
-typeset -gr PACKAGER_NAME=dcompoze
+typeset -gr PACKAGER_NAME=$EXPECTED_PACKAGER
 typeset BUILD_GROUP
 typeset BUILD_PATH
 typeset -ga COMPLETED_PACKAGE_BASES
