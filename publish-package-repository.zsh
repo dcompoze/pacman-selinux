@@ -278,7 +278,7 @@ then
 fi
 
 if ! git -C "$SCRIPT_DIR" push origin \
-  "refs/tags/$release_version:refs/tags/$release_version"
+  "refs/tags/${release_version}:refs/tags/${release_version}"
 then
   rollback_release
   fail "Could not push signed release tag"
