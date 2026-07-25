@@ -16,6 +16,19 @@ typeset -gra PATCHED_PACKAGES=(
   selinux-refpolicy-arch
 )
 
+typeset -gra OFFICIAL_PATCHED_PACKAGES=(
+  coreutils
+  dbus-broker
+  dbus
+  openssh
+  pam
+  pambase
+  shadow
+  sudo
+  systemd
+  util-linux
+)
+
 typeset -gra AUR_PACKAGES=(
   checkpolicy
   libselinux
@@ -32,6 +45,106 @@ typeset -gra AUR_PACKAGES=(
 typeset -gra ALL_PACKAGES=(
   "${PATCHED_PACKAGES[@]}"
   "${AUR_PACKAGES[@]}"
+)
+
+typeset -gra BUILD_ORDER=(
+  libsepol
+  libselinux
+  libsemanage
+  checkpolicy
+  secilc
+  semodule-utils
+  setools
+  pambase
+  coreutils
+  pam
+  shadow
+  dbus
+  util-linux
+  systemd
+  dbus-broker
+  openssh
+  sudo
+  policycoreutils
+  selinux-python
+  selinux-refpolicy-arch
+  selinux-alpm-hook
+)
+
+typeset -gra PUBLISHED_PACKAGE_NAMES=(
+  coreutils
+  util-linux
+  util-linux-libs
+  systemd
+  systemd-libs
+  systemd-resolvconf
+  systemd-sysvcompat
+  pam
+  pambase
+  shadow
+  sudo
+  dbus
+  dbus-broker
+  openssh
+  checkpolicy
+  libselinux
+  libsemanage
+  libsepol
+  policycoreutils
+  secilc
+  selinux-alpm-hook
+  selinux-python
+  selinux-refpolicy-arch
+  semodule-utils
+  setools
+)
+
+typeset -grA PUBLISHED_OUTPUTS=(
+  coreutils coreutils
+  util-linux "util-linux util-linux-libs"
+  systemd "systemd systemd-libs systemd-resolvconf systemd-sysvcompat"
+  pam pam
+  pambase pambase
+  shadow shadow
+  sudo sudo
+  dbus dbus
+  dbus-broker dbus-broker
+  openssh openssh
+  checkpolicy checkpolicy
+  libselinux libselinux
+  libsemanage libsemanage
+  libsepol libsepol
+  policycoreutils policycoreutils
+  secilc secilc
+  selinux-alpm-hook selinux-alpm-hook
+  selinux-python selinux-python
+  selinux-refpolicy-arch selinux-refpolicy-arch
+  semodule-utils semodule-utils
+  setools setools
+)
+
+typeset -grA INTERMEDIATE_INSTALLS=(
+  libsepol libsepol
+  libselinux libselinux
+  libsemanage libsemanage
+  checkpolicy checkpolicy
+  secilc ""
+  semodule-utils semodule-utils
+  setools setools
+  pambase pambase
+  coreutils coreutils
+  pam pam
+  shadow shadow
+  dbus dbus
+  util-linux "util-linux util-linux-libs"
+  systemd "systemd systemd-libs"
+  dbus-broker ""
+  openssh ""
+  sudo ""
+  policycoreutils policycoreutils
+  selinux-python ""
+  selinux-refpolicy-arch ""
+  selinux-alpm-hook ""
 )
 
 typeset -grA UPSTREAM_BRANCHES=(

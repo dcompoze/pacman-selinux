@@ -21,6 +21,110 @@ typeset actual_origin_url
 typeset actual_github_url
 typeset upstream_branch
 
+typeset -gr EXCLUDE_BLOCK_BEGIN="# BEGIN pacman-selinux makepkg outputs"
+typeset -gr EXCLUDE_BLOCK_END="# END pacman-selinux makepkg outputs"
+typeset -gra MAKEPKG_EXCLUDES=(
+  "/pkg/"
+  "/src/"
+  "*.pkg.tar.*"
+  "*.src.tar.*"
+  "*.log"
+)
+
+configure_local_excludes()
+{
+  typeset repository=$1
+  typeset exclude_file
+  typeset exclude_directory
+  typeset temporary_file
+  typeset line
+  typeset -a retained_lines
+  typeset -i inside_managed_block=0
+
+  exclude_file=$(git -C "$repository" rev-parse --git-path info/exclude) ||
+    return 1
+  exclude_directory=${exclude_file:h}
+
+  if ! mkdir -p -- "$exclude_directory"
+  then
+    return 1
+  fi
+
+  if [[ -f $exclude_file ]]
+  then
+    while IFS= read -r line || [[ -n $line ]]
+    do
+      if [[ $line == $EXCLUDE_BLOCK_BEGIN ]]
+      then
+        if (( inside_managed_block ))
+        then
+          return 1
+        fi
+
+        inside_managed_block=1
+        continue
+      fi
+
+      if [[ $line == $EXCLUDE_BLOCK_END ]]
+      then
+        if (( ! inside_managed_block ))
+        then
+          return 1
+        fi
+
+        inside_managed_block=0
+        continue
+      fi
+
+      if (( ! inside_managed_block ))
+      then
+        retained_lines+=("$line")
+      fi
+    done < "$exclude_file"
+  fi
+
+  if (( inside_managed_block ))
+  then
+    return 1
+  fi
+
+  temporary_file=$(mktemp "$exclude_directory/exclude.XXXXXX") ||
+    return 1
+
+  if ! {
+    if (( ${#retained_lines} > 0 ))
+    then
+      print -rl -- "${retained_lines[@]}"
+
+      if [[ -n ${retained_lines[-1]} ]]
+      then
+        print -r -- ""
+      fi
+    fi
+
+    print -r -- "$EXCLUDE_BLOCK_BEGIN"
+    print -rl -- "${MAKEPKG_EXCLUDES[@]}"
+    print -r -- "$EXCLUDE_BLOCK_END"
+  } > "$temporary_file"
+  then
+    rm -f -- "$temporary_file"
+    return 1
+  fi
+
+  if [[ -f $exclude_file ]] && cmp -s -- "$temporary_file" "$exclude_file"
+  then
+    rm -f -- "$temporary_file"
+    return 0
+  fi
+
+  if ! chmod 0644 "$temporary_file" ||
+    ! mv -f -- "$temporary_file" "$exclude_file"
+  then
+    rm -f -- "$temporary_file"
+    return 1
+  fi
+}
+
 for package in "${ALL_PACKAGES[@]}"
 do
   repository="$SCRIPT_DIR/$package"
@@ -101,7 +205,16 @@ do
     fi
   fi
 
+  if ! configure_local_excludes "$repository"
+  then
+    print -u2 -r -- \
+      "ERROR [$package] Could not configure local makepkg exclusions"
+    failed_packages+=("$package")
+    continue
+  fi
+
   print -r -- "Remote layout is configured"
+  print -r -- "Local makepkg exclusions are configured"
 done
 
 print -r -- ""
@@ -113,4 +226,4 @@ then
   exit 1
 fi
 
-print -r -- "All submodule remotes are configured"
+print -r -- "All submodule remotes and local exclusions are configured"
