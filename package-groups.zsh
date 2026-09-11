@@ -74,6 +74,7 @@ typeset -gra BUILD_ORDER=(
 typeset -gra NOCHECK_PACKAGE_BASES=(
   coreutils
   util-linux
+  systemd
 )
 
 typeset -gra PUBLISHED_PACKAGE_NAMES=(
