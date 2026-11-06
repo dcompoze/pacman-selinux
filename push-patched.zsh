@@ -5,6 +5,7 @@ setopt NO_UNSET PIPE_FAIL
 
 typeset -gr SCRIPT_DIR=${0:A:h}
 source "$SCRIPT_DIR/package-groups.zsh"
+source "$SCRIPT_DIR/package-bases.zsh"
 
 fail_package() {
   typeset package=$1
@@ -190,11 +191,10 @@ do
     continue
   fi
 
-  if ! git -C "$repository" merge-base --is-ancestor \
-    "refs/heads/$upstream_branch" "refs/heads/$patched_branch"
+  if ! validate_package_base "$repository" "$package" "$patched_branch"
   then
     fail_package "$package" \
-      "$patched_branch is not based on the current $upstream_branch"
+      "$patched_branch is not based on the selected upstream package"
     continue
   fi
 

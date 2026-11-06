@@ -5,6 +5,7 @@ setopt NO_UNSET PIPE_FAIL
 
 typeset -gr SCRIPT_DIR=${0:A:h}
 source "$SCRIPT_DIR/release-common.zsh"
+source "$SCRIPT_DIR/package-bases.zsh"
 
 parse_build_options()
 {
@@ -267,51 +268,28 @@ validate_superproject()
     then
       fail "$package must be checked out on $intended_branch"
     fi
+
+    if [[ -n ${PATCHED_BRANCHES[$package]-} ]] &&
+      ! validate_package_base "$repository" "$package" HEAD
+    then
+      fail "$package does not use the selected upstream package base"
+    fi
   done
 }
 
 validate_official_versions()
 {
   typeset package
-  typeset srcinfo_file
-  typeset recipe_epoch
-  typeset recipe_pkgver
-  typeset recipe_pkgrel
-  typeset recipe_base_version
-  typeset recipe_full_version
   typeset official_version
-  typeset official_base_version
 
   for package in "${OFFICIAL_PATCHED_PACKAGES[@]}"
   do
-    srcinfo_file="$SCRIPT_DIR/$package/.SRCINFO"
-    recipe_epoch=$(srcinfo_value "$srcinfo_file" epoch)
-    recipe_pkgver=$(srcinfo_value "$srcinfo_file" pkgver)
-    recipe_pkgrel=$(srcinfo_value "$srcinfo_file" pkgrel)
-
-    if [[ -z $recipe_pkgver || -z $recipe_pkgrel ]]
-    then
-      fail "Could not read version metadata for $package"
-    fi
-
-    recipe_base_version="${recipe_epoch:+$recipe_epoch:}$recipe_pkgver"
-    recipe_full_version="$recipe_base_version-$recipe_pkgrel"
     official_version=$(sync_package_version "$package")
-    official_base_version=${official_version%-*}
 
-    if [[ -z $official_version ]]
+    if ! validate_official_package_version \
+      "$SCRIPT_DIR/$package" "$package" "$official_version"
     then
-      fail "Could not resolve official version for $package"
-    fi
-
-    if [[ $recipe_base_version != $official_base_version ]]
-    then
-      fail "$package upstream version differs: recipe=$recipe_base_version official=$official_base_version"
-    fi
-
-    if (( $(vercmp "$recipe_full_version" "$official_version") <= 0 ))
-    then
-      fail "$package must exceed the official version: recipe=$recipe_full_version official=$official_version"
+      fail "$package does not match the selected Arch core package"
     fi
   done
 }

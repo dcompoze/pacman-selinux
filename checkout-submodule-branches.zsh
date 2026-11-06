@@ -5,6 +5,7 @@ setopt NO_UNSET PIPE_FAIL
 
 typeset -gr SCRIPT_DIR=${0:A:h}
 source "$SCRIPT_DIR/package-groups.zsh"
+source "$SCRIPT_DIR/package-bases.zsh"
 
 if (( $# != 0 ))
 then
@@ -130,6 +131,13 @@ do
 
   if ! validate_or_create_branch \
     "$repository" "$package" "$intended_branch" "$tracking_remote"
+  then
+    failed_packages+=("$package")
+    continue
+  fi
+
+  if [[ -n ${PATCHED_BRANCHES[$package]-} ]] &&
+    ! validate_package_base "$repository" "$package" "$intended_branch"
   then
     failed_packages+=("$package")
     continue

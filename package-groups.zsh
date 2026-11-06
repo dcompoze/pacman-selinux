@@ -167,6 +167,35 @@ typeset -grA UPSTREAM_BRANCHES=(
   selinux-refpolicy-arch master
 )
 
+# Select the packaging tag currently released in Arch core, including pkgrel.
+# Update the tag and its full commit together before rebasing SELinux changes.
+# main continues to track origin/main, which may contain testing packages.
+typeset -grA OFFICIAL_BASE_TAGS=(
+  coreutils 9.12-2
+  dbus-broker 37-3
+  dbus 1.16.2-2
+  openssh 10.6p1-2
+  pam 1.7.3-1
+  pambase 20260616-1
+  shadow 4.20.0.arch1-1
+  sudo 1.9.17.p2-6
+  systemd 262.1-1
+  util-linux 2.42.4-1
+)
+
+typeset -grA OFFICIAL_BASE_COMMITS=(
+  coreutils 67c9b5e28295ac576db0bfc38aac77defc8c21b2
+  dbus-broker 007302346bc4e1bc878b208047f27d86d620f39b
+  dbus b2153405ecdc7a07b53dae7aa2e3e25b8e5ac7f9
+  openssh a6ca1d5c3352c394e56751badefbe865e5a4d431
+  pam 8d366d7b5a846cc26dcbb99c5123ff5413ba81b6
+  pambase 18ff110e2b4181d8b84bccdf86525cf2a50ad20d
+  shadow b9fd1505550d16a29861b4a0f6ac2de9a6d51a5a
+  sudo 169bfd01a1ad3fdc24c83335a9039a1369ca160b
+  systemd 83e49870f69d70cce91321b165a69ef788c869be
+  util-linux 1959b6ecef6b57acd92ca97b783553174b747f6a
+)
+
 typeset -grA PATCHED_BRANCHES=(
   coreutils selinux
   dbus-broker selinux
