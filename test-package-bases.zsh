@@ -1,11 +1,11 @@
 #!/usr/bin/env zsh
 
-# Run with initialized submodules: zsh tests/package-bases.zsh
+# Run with initialized submodules: zsh test-package-bases.zsh
 # Uses local objects only and does not change source branches or worktrees.
 emulate -L zsh
 setopt NO_UNSET PIPE_FAIL ERR_EXIT
 
-typeset -r repository_root=${0:A:h:h}
+typeset -r repository_root=${0:A:h}
 typeset -a OFFICIAL_PATCHED_PACKAGES=()
 typeset -A UPSTREAM_BRANCHES=()
 typeset -A OFFICIAL_BASE_TAGS=()
